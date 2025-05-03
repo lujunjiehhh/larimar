@@ -1143,6 +1143,161 @@ class Qwen3ForQuestionAnswering(Qwen3PreTrainedModel):
         )
 
 
+class Qwen3ForLatentConnector(Qwen3PreTrainedModel, GenerationMixin):
+    """
+    Qwen3 Model with latent connector for VAE integration, allowing it to be used as a decoder in the Larimar
+    framework.
+    """
+    _tied_weights_keys = ["lm_head.weight"]
+    
+    def __init__(self, config, latent_size=32, latent_as_emb=True, latent_as_memory=True):
+        super().__init__(config)
+        self.model = Qwen3Model(config)
+        self.vocab_size = config.vocab_size
+        self.lm_head = nn.Linear(config.hidden_size, config.vocab_size, bias=False)
+        
+        self.latent_size = latent_size
+        self.latent_as_emb = latent_as_emb
+        self.latent_as_memory = latent_as_memory
+        if latent_as_emb:
+            self.linear_emb = nn.Linear(latent_size, config.hidden_size)
+        
+        # Initialize weights and apply final processing
+        self.post_init()
+    
+    def get_input_embeddings(self):
+        return self.model.embed_tokens
+    
+    def set_input_embeddings(self, value):
+        self.model.embed_tokens = value
+    
+    def get_output_embeddings(self):
+        return self.lm_head
+    
+    def set_output_embeddings(self, new_embeddings):
+        self.lm_head = new_embeddings
+    
+    def prepare_inputs_for_generation(
+        self,
+        input_ids,
+        past_key_values=None,
+        attention_mask=None,
+        inputs_embeds=None,
+        **kwargs
+    ):
+        """
+        Prepare inputs for generation, handling latent variables.
+        """
+        if past_key_values is not None:
+            past_length = past_key_values[0][0].shape[2]
+            if input_ids.dim() > 2:
+                input_ids = input_ids.view(*input_ids.shape[:-1], -1)
+                
+            input_ids = input_ids[:, -1].unsqueeze(-1)
+            
+            # create position_ids
+            position_ids = kwargs.get("position_ids", None)
+            if attention_mask is not None and position_ids is None:
+                position_ids = attention_mask.long().cumsum(-1) - 1
+                position_ids.masked_fill_(attention_mask == 0, 1)
+                position_ids = position_ids[:, -1].unsqueeze(-1)
+                
+            latent_z = kwargs.get("latent_z", None)
+            if latent_z is not None and self.latent_as_memory:
+                pass
+            else:
+                latent_z = None
+        else:
+            past_length = 0
+            latent_z = kwargs.get("latent_z", None)
+            
+        return {
+            "input_ids": input_ids,
+            "attention_mask": attention_mask,
+            "position_ids": kwargs.get("position_ids", None),
+            "past_key_values": past_key_values,
+            "use_cache": kwargs.get("use_cache", True),
+            "inputs_embeds": inputs_embeds,
+            "latent_z": latent_z,
+        }
+    
+    def forward(
+        self,
+        input_ids: Optional[torch.LongTensor] = None,
+        attention_mask: Optional[torch.Tensor] = None,
+        position_ids: Optional[torch.LongTensor] = None,
+        past_key_values: Optional[Tuple[Tuple[torch.Tensor]]] = None,
+        inputs_embeds: Optional[torch.FloatTensor] = None,
+        labels: Optional[torch.LongTensor] = None,
+        use_cache: Optional[bool] = None,
+        output_attentions: Optional[bool] = None,
+        output_hidden_states: Optional[bool] = None,
+        cache_position: Optional[torch.LongTensor] = None,
+        logits_to_keep: Union[int, torch.Tensor] = 0,
+        latent_z: Optional[torch.FloatTensor] = None,
+        **kwargs,
+    ) -> CausalLMOutputWithPast:
+        """
+        Forward pass for Qwen3ForLatentConnector.
+        
+        Args: 
+            latent_z: Optional latent variable from VAE for conditioning generation.
+        """
+        output_attentions = output_attentions if output_attentions is not None else self.config.output_attentions
+        output_hidden_states = (
+            output_hidden_states if output_hidden_states is not None else self.config.output_hidden_states
+        )
+        
+        if latent_z is not None:
+            if self.latent_as_emb:
+                # Convert latent to embeddings
+                latent_emb = self.linear_emb(latent_z)
+                
+                if inputs_embeds is not None:
+                    inputs_embeds = inputs_embeds + latent_emb.unsqueeze(1)
+                else:
+                    token_embeds = self.get_input_embeddings()(input_ids)
+                    inputs_embeds = token_embeds + latent_emb.unsqueeze(1)
+                    input_ids = None  # Set to None as we're now using inputs_embeds
+        
+        # decoder outputs consists of (dec_features, layer_state, dec_hidden, dec_attn)
+        outputs = self.model(
+            input_ids=input_ids,
+            attention_mask=attention_mask,
+            position_ids=position_ids,
+            past_key_values=past_key_values,
+            inputs_embeds=inputs_embeds,
+            use_cache=use_cache,
+            output_attentions=output_attentions,
+            output_hidden_states=output_hidden_states,
+            cache_position=cache_position,
+            **kwargs,
+        )
+        
+        hidden_states = outputs.last_hidden_state
+        # Only compute necessary logits, and do not upcast them to float if we are not computing the loss
+        slice_indices = slice(-logits_to_keep, None) if isinstance(logits_to_keep, int) else logits_to_keep
+        logits = self.lm_head(hidden_states[:, slice_indices, :])
+        
+        loss = None
+        if labels is not None:
+            shift_logits = logits[..., :-1, :].contiguous()
+            shift_labels = labels[..., 1:].contiguous()
+            loss_fct = nn.CrossEntropyLoss()
+            shift_logits = shift_logits.view(-1, self.config.vocab_size)
+            shift_labels = shift_labels.view(-1)
+            shift_labels = shift_labels.to(shift_logits.device)
+            loss = loss_fct(shift_logits, shift_labels)
+        
+        return CausalLMOutputWithPast(
+            loss=loss,
+            logits=logits,
+            past_key_values=outputs.past_key_values,
+            hidden_states=outputs.hidden_states,
+            attentions=outputs.attentions,
+        )
+
+
 __all__ = [
     "Qwen3ForCausalLM",
     "Qwen3ForQuestionAnswering",
@@ -1150,4 +1305,5 @@ __all__ = [
     "Qwen3PreTrainedModel",
     "Qwen3ForSequenceClassification",
     "Qwen3ForTokenClassification",
+    "Qwen3ForLatentConnector",
 ]
