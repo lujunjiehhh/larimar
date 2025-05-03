@@ -1,3 +1,5 @@
+import math
+
 import numpy as np
 import os, sys
 import torch
@@ -878,8 +880,8 @@ class TextDataset_Split(Dataset):
             tokenized_text1 = self.tokenizer.add_special_tokens_single_sentence(tokenized_text1)
             tokenized_text1_length = len(tokenized_text1)
 
-            tokenized_text1 = [bos_token_id] + tokenized_text1 + [eos_token_id]
-            tokenized_text1 = tokenized_text1 + ([pad_token_id] *  (block_size - tokenized_text1_length - 2) ) # Pad up to the sequence length.
+            tokenized_text1 = [self.bos_token_id] + tokenized_text1 + [self.eos_token_id]
+            tokenized_text1 = tokenized_text1 + ([self.pad_token_id] * (block_size - tokenized_text1_length - 2)) # Pad up to the sequence length.
             assert len(tokenized_text1) == block_size
 
             self.examples.append([tokenized_text1, tokenized_text1_length])
@@ -1144,7 +1146,7 @@ class TextDataset_2Tokenizers(Dataset):
             tokenized_text1_length = len(tokenized_text1)
 
             
-            tokenized_text1 = [bos_token] + tokenized_text1 + [eos_token]
+            tokenized_text1 = [self.bos_token] + tokenized_text1 + [self.eos_token]
             tokenized_text1 = tokenized_text1 + ([pad_token] *  (block_size - tokenized_text1_length - 2) ) # Pad up to the sequence length.
             assert len(tokenized_text1) == block_size
 
