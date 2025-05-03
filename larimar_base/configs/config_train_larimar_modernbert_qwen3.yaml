@@ -2,13 +2,13 @@
 model:
   # Encoder
   encoder_model_type: modernbert
-  encoder_model_name_or_path: answerdotai/ModernBERT-base
+  encoder_model_name_or_path: Alibaba-NLP/gte-modernbert-base
   cache_dir: '../cache'
-  load_pretrained: true
+  load_pretrained: false
 
   # Decoder
   decoder_model_type: qwen3
-  decoder_model_name_or_path: Qwen/Qwen3-7B
+  decoder_model_name_or_path: Qwen/Qwen3-4B
 
   # Auto-encoder
   latent_size: 768
@@ -76,7 +76,6 @@ trainer:
   max_epochs: 4
   limit_val_batches: 0
   reload_dataloaders_every_n_epochs: 1 # to ensure reshuffling of data buckets
-  limit_val_batches: 0 # don't run eval during training
   num_sanity_val_steps : 0 # don't run eval at the beginning
   default_root_dir: '../train/larimar/checkpoints/modernbert-qwen3-wiki'
   callbacks:

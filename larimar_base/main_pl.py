@@ -1,10 +1,12 @@
 import lightning
+import torch
 from lightning.pytorch.cli import LightningCLI
 from lightning_model import MemNetLight
 from lightning_data import DataModule
 import os
 import subprocess
 
+torch.set_float32_matmul_precision('medium')
 
 def fix_infiniband():
     ibv = subprocess.run('ibv_devinfo', stdout=subprocess.PIPE, stderr=subprocess.PIPE)
@@ -25,7 +27,9 @@ def fix_infiniband():
 
 
 def set_env(master_port):
-        LSB_MCPU_HOSTS = os.environ["LSB_MCPU_HOSTS"].split(' ')  # Parses Node list set by LSF, in format hostname proceeded by number of cores requested
+    LSB_MCPU_HOSTS = (os.environ.get("LSB_MCPU_HOSTS"))
+    if LSB_MCPU_HOSTS:
+        LSB_MCPU_HOSTS = LSB_MCPU_HOSTS.split(' ') # Parses Node list set by LSF, in format hostname proceeded by number of cores requested
         HOST_LIST = LSB_MCPU_HOSTS[::2]  # Strips the cores per node items in the list
         os.environ["MASTER_ADDR"] = HOST_LIST[0]  # Sets the MasterNode to thefirst node on the list of hosts
         os.environ["MASTER_PORT"] = master_port
@@ -33,6 +37,15 @@ def set_env(master_port):
         os.environ["NCCL_SOCKET_IFNAME"] = 'ib,bond' #"^docker0,lo"  # avoids using docker of loopback interface
         os.environ["NCCL_DEBUG"] = "INFO"  # sets NCCL debug to info, during distributed training, bugs in code show up as nccl errors
         os.environ["NCCL_IB_CUDA_SUPPORT"] = '1'  # Force use of infiniband
+    else:
+        # 如果 LSB_MCPU_HOSTS 不存在，假定在单机模式下运行
+        print("未检测到 LSF 环境变量，按单机模式设置分布式环境...")
+        # 单机模式下，主节点地址就是本地
+        os.environ["MASTER_ADDR"] = 'localhost'
+        # 设置主节点端口
+        os.environ["MASTER_PORT"] = str(master_port) # 确保端口是字符串类型
+        # 单机模式下，当前节点排名总是 0
+        os.environ["NODE_RANK"] = '0'
 
 
 class MyLightningCLI(LightningCLI):

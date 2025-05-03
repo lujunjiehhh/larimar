@@ -44,7 +44,7 @@ model:
   ratio_increase: 0.25
   ratio_zero: 0.5
   fb_mode: 1
-  optimizer: adamw  # or fusedadam or deepspeed
+  optimizer: apollo  # or fusedadam or deepspeed or adamw or apollo
 
   # Evaluation
   bleu: false
@@ -61,8 +61,8 @@ model:
 
 ## DATA
 data:
-  train_data_file: '../data/wikipedia/train.txt'
-  eval_data_file: '../data/wikipedia/test.txt'
+  train_data_file: '../data/wikipedia/blocksize_64/train.txt'
+  eval_data_file: '../data/wikipedia/blocksize_64/test.txt'
   num_data_workers: 4
   train_batch_size: 64
   eval_batch_size: 64
@@ -74,7 +74,6 @@ data:
 
 trainer:
   max_epochs: 4
-  limit_val_batches: 0
   reload_dataloaders_every_n_epochs: 1 # to ensure reshuffling of data buckets
   limit_val_batches: 0 # don't run eval during training
   num_sanity_val_steps : 0 # don't run eval at the beginning

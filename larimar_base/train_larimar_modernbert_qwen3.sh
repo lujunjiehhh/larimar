@@ -8,8 +8,8 @@ config_file=configs/config_train_larimar_modernbert_qwen3.yaml
 ####################################################################################################
 # model_* 
 ####################################################################################################
-model_encoder_model_name_or_path="answerdotai/ModernBERT-base"
-model_decoder_model_name_or_path="Qwen/Qwen3-7B"
+model_encoder_model_name_or_path="Alibaba-NLP/gte-modernbert-base"
+model_decoder_model_name_or_path="Qwen/Qwen3-4B"
 model_decode_rec_strength=1.0
 model_optimizer=adamw
 model_learning_rate=5e-5
@@ -24,10 +24,10 @@ model_episode_sizes=[${episode_length}]
 ####################################################################################################
 # trainer_*
 ####################################################################################################
-trainer_devices=8
+trainer_devices=1
 trainer_max_epochs=5
-trainer_precision=32-true
-trainer_strategy=ddp
+trainer_precision=bf16-mixed
+trainer_strategy=auto
 trainer_callbacks_init_args_every_n_train_steps=20000
 trainer_callbacks_init_args_save_top_k=3
 
@@ -36,7 +36,7 @@ trainer_callbacks_init_args_save_top_k=3
 ####################################################################################################
 # data_*
 ####################################################################################################
-data_train_batch_size=16
+data_train_batch_size=1
 data_num_chunks=false
 
 

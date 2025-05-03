@@ -1,5 +1,7 @@
 sentence-transformers
 lightning
+#deepspeed
+apollo-torch
 nltk
 boto3
 sacremoses
