@@ -87,7 +87,7 @@ class AverageValueMeter(Meter):
         self.std = np.nan
 
 
-class BucketSamplerr(Sampler):
+class BucketSampler(Sampler):
     def __init__(self, lens, bucket_size, batch_size, drop_last=False, shuffle=True):
         # super().__init__()
         self._lens = lens
