@@ -21,9 +21,13 @@ from pytorch_transformers import (AdamW, WarmupLinearSchedule,
                                   GPTJConfig, GPTJForLatentConnector,
                                   OpenAIGPTConfig, OpenAIGPTLMHeadModel, OpenAIGPTTokenizer,
                                   RobertaConfig, RobertaForMaskedLM, RobertaTokenizer)
+from pytorch_transformers.configuration_modernbert import ModernBertConfig
+from pytorch_transformers.modeling_modernbert import ModernBertForLatentConnector
+from pytorch_transformers.configuration_qwen3 import Qwen3Config
+from pytorch_transformers.modeling_qwen3 import Qwen3ForLatentConnector
 
 #                                   JinaBertConfig, JinaBertForLatentConnector,
-from transformers import get_linear_schedule_with_warmup
+from transformers import get_linear_schedule_with_warmup, AutoTokenizer
 
 from modules import MemVAE, VAE
 from utils import (BucketingDataLoader, TextDataset_Split, TextDataset_2Tokenizers, frange_cycle_zero_linear, frange_cycle_both_ramp)
@@ -43,7 +47,9 @@ MODEL_CLASSES = {
     'openai-gpt': (OpenAIGPTConfig, OpenAIGPTLMHeadModel, OpenAIGPTTokenizer),
     'bert': (BertConfig, BertForLatentConnector, BertTokenizer),
 #    'jina_bert': (JinaBertConfig, JinaBertForLatentConnector, BertTokenizer),
-    'roberta': (RobertaConfig, RobertaForMaskedLM, RobertaTokenizer)
+    'roberta': (RobertaConfig, RobertaForMaskedLM, RobertaTokenizer),
+    'modernbert': (ModernBertConfig, ModernBertForLatentConnector, AutoTokenizer),
+    'qwen3': (Qwen3Config, Qwen3ForLatentConnector, AutoTokenizer)
 }
 
 

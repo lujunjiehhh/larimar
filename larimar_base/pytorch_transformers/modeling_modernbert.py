@@ -1456,6 +1456,88 @@ class ModernBertForQuestionAnswering(ModernBertPreTrainedModel):
         )
 
 
+class ModernBertForLatentConnector(ModernBertPreTrainedModel):
+    """
+    ModernBert Model with latent connector for VAE integration, allowing it to be used as an encoder in the Larimar
+    framework.
+    """
+    def __init__(self, config, latent_size=32):
+        super().__init__(config)
+        self.config = config
+        self.bert = ModernBertModel(config)
+        self.linear = nn.Linear(config.hidden_size, 2 * latent_size)
+        self.latent_size = latent_size
+        self.post_init()
+    
+    def get_input_embeddings(self):
+        return self.bert.get_input_embeddings()
+    
+    def set_input_embeddings(self, value):
+        self.bert.set_input_embeddings(value)
+    
+    def forward(
+        self,
+        input_ids: Optional[torch.LongTensor] = None,
+        attention_mask: Optional[torch.Tensor] = None,
+        sliding_window_mask: Optional[torch.Tensor] = None,
+        position_ids: Optional[torch.LongTensor] = None,
+        inputs_embeds: Optional[torch.Tensor] = None,
+        indices: Optional[torch.Tensor] = None,
+        cu_seqlens: Optional[torch.Tensor] = None,
+        max_seqlen: Optional[int] = None,
+        batch_size: Optional[int] = None,
+        seq_len: Optional[int] = None,
+        output_attentions: Optional[bool] = None,
+        output_hidden_states: Optional[bool] = None,
+        return_dict: Optional[bool] = None,
+    ) -> Union[Tuple[torch.Tensor, ...], Dict[str, torch.Tensor]]:
+        """
+        Forward pass for ModernBertForLatentConnector.
+        
+        Returns:
+            tuple or dict: If return_dict is False, returns a tuple containing:
+                - mu: Mean vector for the VAE
+                - logvar: Log variance vector for the VAE
+                - Outputs from the ModernBert model
+            If return_dict is True, returns a dictionary with the same elements.
+        """
+        return_dict = return_dict if return_dict is not None else self.config.use_return_dict
+        self._maybe_set_compile()
+        
+        outputs = self.bert(
+            input_ids=input_ids,
+            attention_mask=attention_mask,
+            sliding_window_mask=sliding_window_mask,
+            position_ids=position_ids,
+            inputs_embeds=inputs_embeds,
+            indices=indices,
+            cu_seqlens=cu_seqlens,
+            max_seqlen=max_seqlen,
+            batch_size=batch_size,
+            seq_len=seq_len,
+            output_attentions=output_attentions,
+            output_hidden_states=output_hidden_states,
+            return_dict=True,
+        )
+        
+        last_hidden_state = outputs.last_hidden_state
+        pooled_output = last_hidden_state[:, 0]
+        
+        projected = self.linear(pooled_output)
+        mu, logvar = projected[:, :self.latent_size], projected[:, self.latent_size:]
+        
+        if not return_dict:
+            return mu, logvar, outputs.last_hidden_state, outputs.hidden_states, outputs.attentions
+        
+        return {
+            "mu": mu,
+            "logvar": logvar,
+            "last_hidden_state": outputs.last_hidden_state,
+            "hidden_states": outputs.hidden_states,
+            "attentions": outputs.attentions
+        }
+
+
 __all__ = [
     "ModernBertModel",
     "ModernBertPreTrainedModel",
@@ -1463,4 +1545,5 @@ __all__ = [
     "ModernBertForSequenceClassification",
     "ModernBertForTokenClassification",
     "ModernBertForQuestionAnswering",
+    "ModernBertForLatentConnector",
 ]
