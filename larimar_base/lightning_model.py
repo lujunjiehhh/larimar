@@ -4,6 +4,8 @@ import logging
 import torch
 import numpy as np
 from nltk.tokenize import wordpunct_tokenize
+from torch import nn
+
 from utils import text_from_latent_code
 import nltk
 from torchmetrics import Metric
@@ -13,7 +15,9 @@ try:
 except ImportError:
     print('Install apex from https://github.com/NVIDIA/apex/ if you plan to use FusedAdam')
 
-from deepspeed.ops.adam import DeepSpeedCPUAdam
+from apollo_torch import APOLLOAdamW
+
+# from deepspeed.ops.adam import DeepSpeedCPUAdam
 
 from pytorch_transformers import (AdamW, WarmupLinearSchedule,
                                   BertConfig, BertForLatentConnector, BertTokenizer,
@@ -21,9 +25,11 @@ from pytorch_transformers import (AdamW, WarmupLinearSchedule,
                                   GPTJConfig, GPTJForLatentConnector,
                                   OpenAIGPTConfig, OpenAIGPTLMHeadModel, OpenAIGPTTokenizer,
                                   RobertaConfig, RobertaForMaskedLM, RobertaTokenizer)
+from pytorch_transformers.modeling_modernbert import ModernBertForLatentConnector
+from pytorch_transformers.modeling_qwen3 import Qwen3ForLatentConnector
 
 #                                   JinaBertConfig, JinaBertForLatentConnector,
-from transformers import get_linear_schedule_with_warmup
+from transformers import get_linear_schedule_with_warmup, AutoTokenizer, ModernBertConfig, Qwen3Config
 
 from modules import MemVAE, VAE
 from utils import (BucketingDataLoader, TextDataset_Split, TextDataset_2Tokenizers, frange_cycle_zero_linear, frange_cycle_both_ramp)
@@ -43,7 +49,9 @@ MODEL_CLASSES = {
     'openai-gpt': (OpenAIGPTConfig, OpenAIGPTLMHeadModel, OpenAIGPTTokenizer),
     'bert': (BertConfig, BertForLatentConnector, BertTokenizer),
 #    'jina_bert': (JinaBertConfig, JinaBertForLatentConnector, BertTokenizer),
-    'roberta': (RobertaConfig, RobertaForMaskedLM, RobertaTokenizer)
+    'roberta': (RobertaConfig, RobertaForMaskedLM, RobertaTokenizer),
+    'modernbert': (ModernBertConfig, ModernBertForLatentConnector, AutoTokenizer),
+    'qwen3': (Qwen3Config, Qwen3ForLatentConnector, AutoTokenizer)
 }
 
 
@@ -137,6 +145,7 @@ def prepare_enc_dec(encoder_model_type,
                                                         latent_size=latent_size,
                                                         cache_dir=cache_dir)
 
+
     # ======== DECODER =========
     decoder_config_class, decoder_model_class, decoder_tokenizer_class = MODEL_CLASSES[decoder_model_type]
     decoder_config = decoder_config_class.from_pretrained(decoder_model_name_or_path,
@@ -146,7 +155,6 @@ def prepare_enc_dec(encoder_model_type,
                                                         from_tf=bool('.ckpt' in decoder_model_name_or_path),
                                                         config=decoder_config, latent_size=latent_size,
                                                         cache_dir=cache_dir)
-
 
     # D = pickle.load(open('tmp.pkl', 'rb'))
     # input_ids = torch.tensor(D['input_ids'])
@@ -659,13 +667,39 @@ class MemNetLight(pl.LightningModule):
                 "weight_decay": 0.0,
             },
         ]
+        # define param groups as lowrank_params and regular params
+        # make parameters with "rank" to a single group, if param_name has "mlp" or "attn"
+        lowrank_params = []
+        target_modules_list = ["attn", "mlp"]
+        for module_name, module in model.named_modules():
+            if not (isinstance(module, nn.Linear)):
+                continue
+            if not any(target_key in module_name for target_key in target_modules_list):
+                continue
+            logger.info(f"Adding {module_name} to APOLLO parameters")
+            lowrank_params.append(module.weight)
 
+        id_lowrank_params = [id(p) for p in lowrank_params]
+        # make parameters without "rank" to another group
+        regular_params = [p for p in model.parameters() if id(p) not in id_lowrank_params]
+        # then call low rank optimizer
+        param_groups = [{'params': regular_params},
+                        {'params':
+                             lowrank_params,
+                         'rank': 1,
+                         'proj': 'random',
+                         'scale_type': 'tensor',
+                         'scale': 128,
+                         'update_proj_gap': 200,
+                         'proj_type': 'std'}]
         if self.hparams.optimizer == 'adamw':
             optimizer = AdamW(optimizer_grouped_parameters, lr=self.hparams.learning_rate, eps=self.hparams.adam_epsilon)
         elif self.hparams.optimizer == 'fusedadam':
             optimizer = FusedAdam(optimizer_grouped_parameters, lr=self.hparams.learning_rate, eps=self.hparams.adam_epsilon)
-        elif self.hparams.optimizer == 'deepspeed':
-            optimizer = DeepSpeedCPUAdam(optimizer_grouped_parameters, lr=self.hparams.learning_rate, eps=self.hparams.adam_epsilon)
+        # elif self.hparams.optimizer == 'deepspeed':
+        #     optimizer = DeepSpeedCPUAdam(optimizer_grouped_parameters, lr=self.hparams.learning_rate, eps=self.hparams.adam_epsilon)
+        elif self.hparams.optimizer == 'apollo':
+            optimizer = APOLLOAdamW(param_groups, lr=self.hparams.learning_rate, eps=self.hparams.adam_epsilon)
         else:
             raise ValueError('unknown optimizer')
 

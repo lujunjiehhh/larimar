@@ -17,6 +17,7 @@
 
 from huggingface_hub import get_full_repo_name  # for backward compatibility
 from packaging import version
+from transformers.utils.import_utils import _is_package_available
 
 from .. import __version__
 from .constants import IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD, IMAGENET_STANDARD_MEAN, IMAGENET_STANDARD_STD
@@ -58,6 +59,20 @@ from .generic import (
     transpose,
     working_or_temp_dir,
 )
+import importlib.metadata
+import importlib.util
+import json
+import os
+import shutil
+import subprocess
+import sys
+import warnings
+from collections import OrderedDict
+from functools import lru_cache
+from itertools import chain
+from types import ModuleType
+from typing import Any, Tuple, Union
+
 from .hub import (
     CLOUDFRONT_DISTRIB_PREFIX,
     DISABLE_TELEMETRY,
@@ -186,7 +201,7 @@ from .import_utils import (
     is_training_run_on_sagemaker,
     is_vision_available,
     requires_backends,
-    torch_only_method,
+    torch_only_method, logger,
 )
 from .peft_utils import (
     ADAPTER_CONFIG_NAME,
@@ -237,3 +252,38 @@ def check_min_version(min_version):
             + "Check out https://github.com/huggingface/transformers/tree/main/examples#important-note for the examples corresponding to other "
             "versions of HuggingFace Transformers."
         )
+def is_flash_attn_2_available():
+    if not is_torch_available():
+        return False
+
+    if not _is_package_available("flash_attn"):
+        return False
+
+    # Let's add an extra check to see if cuda is available
+    import torch
+
+    if not torch.cuda.is_available():
+        return False
+
+    if torch.version.cuda:
+        return version.parse(importlib.metadata.version("flash_attn")) >= version.parse("2.1.0")
+    elif torch.version.hip:
+        # TODO: Bump the requirement to 2.1.0 once released in https://github.com/ROCmSoftwarePlatform/flash-attention
+        return version.parse(importlib.metadata.version("flash_attn")) >= version.parse("2.0.4")
+    else:
+        return False
+
+
+def is_flash_attn_greater_or_equal_2_10():
+    if not _is_package_available("flash_attn"):
+        return False
+
+    return version.parse(importlib.metadata.version("flash_attn")) >= version.parse("2.1.0")
+
+
+def is_flash_attn_available():
+    logger.warning(
+        "Using `is_flash_attn_available` is deprecated and will be removed in v4.38. "
+        "Please use `is_flash_attn_2_available` instead."
+    )
+    return is_flash_attn_2_available()
